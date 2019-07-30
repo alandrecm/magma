@@ -29,4 +29,6 @@ Vagrant will bring up the VM, then Ansible will provision the VM.
 ``AGW:~ USER$ cd magma/lte/gateway``<br>
 ``AGW:~/magma/lte/gateway USER$ make run``
 
+* If you are running Access Gateway and Orchestrator in different machines, you must copy the certificate `rootCA.pem` located in `magma/.cache/test_certs/` from Orchestrator to Access Gateway
+
 Once the Access Gateway VM is running successfully, proceed to attaching the eNodeB.
