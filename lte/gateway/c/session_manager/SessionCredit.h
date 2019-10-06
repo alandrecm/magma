@@ -46,7 +46,7 @@ enum ServiceState {
   SERVICE_ENABLED = 0,
   SERVICE_NEEDS_DEACTIVATION = 1,
   SERVICE_DISABLED = 2,
-  SERVICE_NEEDS_ACTIVATION = 3
+  SERVICE_NEEDS_ACTIVATION = 3,
 };
 
 enum CreditUpdateType {
@@ -66,6 +66,11 @@ class SessionCredit {
   struct Usage {
     uint64_t bytes_tx;
     uint64_t bytes_rx;
+  };
+
+  struct FinalActionInfo {
+    ChargingCredit_FinalAction final_action;
+    RedirectServer redirect_server;
   };
 
   SessionCredit();
@@ -100,7 +105,8 @@ class SessionCredit {
     uint64_t tx_volume,
     uint64_t rx_volume,
     uint32_t validity_time,
-    bool is_final);
+    bool is_final,
+    FinalActionInfo final_action_info);
 
   /**
    * get_update_type returns the type of update required for the credit. If no
@@ -144,6 +150,11 @@ class SessionCredit {
   bool no_more_grant();
 
   /**
+   * Returns
+   */
+  RedirectServer get_redirect_server();
+
+  /**
    * A threshold represented as a ratio for triggering usage update before
    * an user completely used up the quota
    * Session manager will send usage update when
@@ -152,9 +163,24 @@ class SessionCredit {
    */
   static float USAGE_REPORTING_THRESHOLD;
 
+  /**
+   * Extra number of bytes an user could use after the quota is exhausted.
+   * Session manager will deactivate the service when
+   * used quota >= (granted quota + EXTRA_QUOTA_MARGIN)
+   */
+  static uint64_t EXTRA_QUOTA_MARGIN;
+
+  /**
+   * Set to true to terminate service when the quota of a session is exhausted.
+   * An user can still use up to the extra margin.
+   * Set to false to allow users to use without any constraint.
+   */
+  static bool TERMINATE_SERVICE_WHEN_QUOTA_EXHAUSTED;
+
  private:
   bool reporting_;
   bool is_final_;
+  FinalActionInfo final_action_info_;
   ReAuthState reauth_state_;
   ServiceState service_state_;
   std::time_t expiry_time_;
@@ -166,15 +192,18 @@ class SessionCredit {
   uint64_t usage_reporting_limit_;
 
  private:
-  bool quota_exhausted();
+  bool quota_exhausted(
+    float usage_reporting_threshold = 1, uint64_t extra_quota_margin = 0);
 
-  bool max_overage_reached();
+  bool should_deactivate_service();
 
   bool validity_timer_expired();
 
   void set_expiry_time(uint32_t validity_time);
 
   bool is_reauth_required();
+
+  ServiceActionType get_action_for_deactivating_service();
 };
 
 } // namespace magma

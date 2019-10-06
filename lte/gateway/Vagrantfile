@@ -56,7 +56,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     magma_trfserver.vm.network "private_network", ip: "192.168.60.144", nic_type: "82540EM"
     # iperf3 server IP.
     magma_trfserver.vm.network "private_network", ip: "192.168.129.42", nic_type: "82540EM"
-
+    magma_trfserver.vm.network "private_network", ip: "192.168.128.24", nic_type: "82540EM"
     magma_trfserver.vbguest.auto_update = false
 
     magma_trfserver.vm.provider "virtualbox" do |vb|
@@ -139,4 +139,16 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     end
   end
 
+  config.vm.define :ovs_build, autostart: false do |ovs_build|
+    ovs_build.vm.box = "generic/debian9"
+    ovs_build.vm.hostname = "build-ovs"
+    ovs_build.vm.network "public_network"
+    ovs_build.ssh.forward_agent = true
+    ovs_build.vm.box_check_update = false
+
+    # Enable provisioning with a shell script. Additional provisioners such as
+    # Puppet, Chef, Ansible, Salt, and Docker are also available. Please see the
+    # documentation for more information about their specific syntax and use.
+    config.ssh.insert_key = false
+  end
 end

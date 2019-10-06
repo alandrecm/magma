@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"magma/orc8r/cloud/go/services/metricsd/prometheus/alerting/files"
 	"magma/orc8r/cloud/go/services/metricsd/prometheus/alerting/handlers"
 	"magma/orc8r/cloud/go/services/metricsd/prometheus/alerting/receivers"
 
@@ -21,30 +22,29 @@ import (
 )
 
 const (
-	defaultPort                   = "9093"
-	defaultAlertmanagerURL        = "localhost:9092"
+	defaultPort                   = "9101"
+	defaultAlertmanagerURL        = "alertmanager:9093"
 	defaultAlertmanagerConfigPath = "./alertmanager.yml"
-
-	rootPath     = "/:network_id"
-	receiverPath = rootPath + "/receiver"
 )
 
 func main() {
 	port := flag.String("port", defaultPort, fmt.Sprintf("Port to listen for requests. Default is %s", defaultPort))
-	alertmanagerConfPath := flag.String("alertmanager-conf", "./alertmanager.yml", fmt.Sprintf("Path to alertmanager configuration file. Default is %s", defaultAlertmanagerConfigPath))
-	alertmanagerURL := flag.String("alertmanagerURL", "localhost:9092", fmt.Sprintf("URL of the alertmanager instance that is being used. Default is %s", defaultAlertmanagerURL))
+	alertmanagerConfPath := flag.String("alertmanager-conf", defaultAlertmanagerConfigPath, fmt.Sprintf("Path to alertmanager configuration file. Default is %s", defaultAlertmanagerConfigPath))
+	alertmanagerURL := flag.String("alertmanagerURL", defaultAlertmanagerURL, fmt.Sprintf("URL of the alertmanager instance that is being used. Default is %s", defaultAlertmanagerURL))
 	flag.Parse()
 
 	e := echo.New()
 
 	e.GET("/", statusHandler)
 
-	receiverClient := receivers.NewClient(*alertmanagerConfPath)
-	e.POST(receiverPath, handlers.GetReceiverPostHandler(receiverClient, *alertmanagerURL))
-	e.GET(receiverPath, handlers.GetGetReceiversHandler(receiverClient))
+	receiverClient := receivers.NewClient(*alertmanagerConfPath, files.NewFSClient())
+	e.POST(handlers.ReceiverPath, handlers.GetReceiverPostHandler(receiverClient, *alertmanagerURL))
+	e.GET(handlers.ReceiverPath, handlers.GetGetReceiversHandler(receiverClient))
+	e.DELETE(handlers.ReceiverPath, handlers.GetDeleteReceiverHandler(receiverClient, *alertmanagerURL))
+	e.PUT(handlers.ReceiverPath+"/:"+handlers.ReceiverNamePathParam, handlers.GetUpdateReceiverHandler(receiverClient, *alertmanagerURL))
 
-	e.POST(receiverPath+"/route", handlers.GetUpdateRouteHandler(receiverClient, *alertmanagerURL))
-	e.GET(receiverPath+"/route", handlers.GetGetRouteHandler(receiverClient))
+	e.POST(handlers.RoutePath, handlers.GetUpdateRouteHandler(receiverClient, *alertmanagerURL))
+	e.GET(handlers.RoutePath, handlers.GetGetRouteHandler(receiverClient))
 
 	glog.Infof("Alertmanager Config server listening on port: %s\n", *port)
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%s", *port)))

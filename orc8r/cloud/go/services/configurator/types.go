@@ -23,6 +23,8 @@ import (
 // entities within the network.
 type Network struct {
 	ID string
+	// Specifies the type of network. (lte, wifi, etc)
+	Type string
 
 	Name        string
 	Description string
@@ -38,6 +40,7 @@ type Network struct {
 func (n Network) toStorageProto() (*storage.Network, error) {
 	ret := &storage.Network{
 		ID:          n.ID,
+		Type:        n.Type,
 		Name:        n.Name,
 		Description: n.Description,
 	}
@@ -56,6 +59,7 @@ func (n Network) fromStorageProto(protoNet *storage.Network) (Network, error) {
 	}
 
 	n.ID = protoNet.ID
+	n.Type = protoNet.Type
 	n.Name = protoNet.Name
 	n.Description = protoNet.Description
 	n.Version = protoNet.Version
@@ -71,9 +75,10 @@ type NetworkUpdateCriteria struct {
 	// Set DeleteNetwork to true to delete the network
 	DeleteNetwork bool
 
-	// Set NewName or NewDescription to nil to indicate that no update is
+	// Set NewType, NewName or NewDescription to nil to indicate that no update is
 	// desired. To clear the value of name or description, set these fields to
 	// a pointer to an empty string.
+	NewType        *string
 	NewName        *string
 	NewDescription *string
 
@@ -97,6 +102,7 @@ func (nuc NetworkUpdateCriteria) toStorageProto() (*storage.NetworkUpdateCriteri
 
 		NewName:        strPtrToWrapper(nuc.NewName),
 		NewDescription: strPtrToWrapper(nuc.NewDescription),
+		NewType:        strPtrToWrapper(nuc.NewType),
 
 		ConfigsToAddOrUpdate: bConfigs,
 		ConfigsToDelete:      nuc.ConfigsToDelete,
@@ -197,6 +203,18 @@ func (ent NetworkEntity) GetTypeAndKey() storage2.TypeAndKey {
 	return storage2.TypeAndKey{Type: ent.Type, Key: ent.Key}
 }
 
+func (ent NetworkEntity) isEntityWriteOperation() {}
+
+type NetworkEntities []NetworkEntity
+
+func (ne NetworkEntities) ToEntitiesByID() map[storage2.TypeAndKey]NetworkEntity {
+	ret := make(map[storage2.TypeAndKey]NetworkEntity, len(ne))
+	for _, ent := range ne {
+		ret[ent.GetTypeAndKey()] = ent
+	}
+	return ret
+}
+
 // EntityGraph represents a DAG of associated network entities
 type EntityGraph struct {
 	Entities     []NetworkEntity
@@ -279,12 +297,29 @@ func (elc EntityLoadCriteria) toStorageProto() *storage.EntityLoadCriteria {
 	}
 }
 
+// FullEntityLoadCriteria returns an EntityLoadCriteria that loads everything
+// possible on an entity
+func FullEntityLoadCriteria() EntityLoadCriteria {
+	return EntityLoadCriteria{
+		LoadMetadata:       true,
+		LoadConfig:         true,
+		LoadAssocsToThis:   true,
+		LoadAssocsFromThis: true,
+	}
+}
+
 // EntityLoadResult encapsulates the result of a LoadEntities call
 type EntityLoadResult struct {
 	// Loaded entities
 	Entities []NetworkEntity
 	// Entities which were not found
 	EntitiesNotFound []storage2.TypeAndKey
+}
+
+// EntityWriteOperation is an interface around entity creation/update for the
+// generic multi-operation configurator endpoint.
+type EntityWriteOperation interface {
+	isEntityWriteOperation()
 }
 
 // EntityUpdateCriteria specifies a patch operation on a network entity.
@@ -342,6 +377,8 @@ func (euc EntityUpdateCriteria) toStorageProto() (*storage.EntityUpdateCriteria,
 func (euc EntityUpdateCriteria) GetTypeAndKey() storage2.TypeAndKey {
 	return storage2.TypeAndKey{Type: euc.Type, Key: euc.Key}
 }
+
+func (euc EntityUpdateCriteria) isEntityWriteOperation() {}
 
 func marshalConfigs(configs map[string]interface{}, domain string) (map[string][]byte, error) {
 	ret := map[string][]byte{}

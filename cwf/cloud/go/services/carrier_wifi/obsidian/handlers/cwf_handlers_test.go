@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	cwfplugin "magma/cwf/cloud/go/plugin"
-	"magma/cwf/cloud/go/services/carrier_wifi/obsidian/models"
-	"magma/orc8r/cloud/go/obsidian/handlers"
+	"magma/cwf/cloud/go/plugin/models"
+	"magma/orc8r/cloud/go/obsidian"
 	obsidian_test "magma/orc8r/cloud/go/obsidian/tests"
 	"magma/orc8r/cloud/go/plugin"
 	"magma/orc8r/cloud/go/pluginimpl"
@@ -29,7 +29,7 @@ func TestGetNetworkConfigs(t *testing.T) {
 	plugin.RegisterPluginForTests(t, &pluginimpl.BaseOrchestratorPlugin{})
 	configurator_test_init.StartTestService(t)
 	restPort := obsidian_test.StartObsidian(t)
-	testUrlRoot := fmt.Sprintf("http://localhost:%d%s/networks", restPort, handlers.REST_ROOT)
+	testUrlRoot := fmt.Sprintf("http://localhost:%d%s/networks", restPort, obsidian.RestRoot)
 
 	networkID := "cwf_obsidian_test_network"
 	configurator_test_utils.RegisterNetwork(t, networkID, "Test Network 1")
@@ -65,7 +65,7 @@ func TestSetNetworkConfigs(t *testing.T) {
 	configurator_test_init.StartTestService(t)
 
 	restPort := obsidian_test.StartObsidian(t)
-	testUrlRoot := fmt.Sprintf("http://localhost:%d%s/networks", restPort, handlers.REST_ROOT)
+	testUrlRoot := fmt.Sprintf("http://localhost:%d%s/networks", restPort, obsidian.RestRoot)
 
 	networkID := "cwf_obsidian_test_network"
 	configurator_test_utils.RegisterNetwork(t, networkID, "Test Network 1")
@@ -118,21 +118,20 @@ func TestSetNetworkConfigs(t *testing.T) {
 
 func newDefaultCwfNetworkConfig() *models.NetworkCarrierWifiConfigs {
 	return &models.NetworkCarrierWifiConfigs{
-		RelayEnabled: true,
-		AaaServer: &models.NetworkCarrierWifiConfigsAaaServer{
+		AaaServer: &models.AaaServer{
 			AccountingEnabled:    false,
 			CreateSessionOnAuth:  false,
 			IDLESessionTimeoutMs: 21600000,
 		},
-		EapAka: &models.NetworkCarrierWifiConfigsEapAka{
+		EapAka: &models.EapAka{
 			PlmnIds: []string{},
-			Timeout: &models.EapAkaTimeouts{
+			Timeout: &models.EapAkaTimeout{
 				ChallengeMs:            20000,
 				ErrorNotificationMs:    10000,
 				SessionMs:              43200000,
 				SessionAuthenticatedMs: 5000,
 			},
 		},
-		FegNetworkID: "feg_network",
+		DefaultRuleID: nil,
 	}
 }

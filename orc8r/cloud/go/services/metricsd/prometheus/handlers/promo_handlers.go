@@ -11,10 +11,12 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
-	"magma/orc8r/cloud/go/obsidian/handlers"
+	"magma/orc8r/cloud/go/obsidian"
+	"magma/orc8r/cloud/go/pluginimpl/handlers"
 	"magma/orc8r/cloud/go/services/metricsd/obsidian/security"
 	"magma/orc8r/cloud/go/services/metricsd/obsidian/utils"
 	"magma/orc8r/cloud/go/services/metricsd/prometheus/exporters"
@@ -27,9 +29,17 @@ import (
 const (
 	queryPart      = "query"
 	queryRangePart = "query_range"
+	seriesPart     = "series"
 
-	QueryURL      = handlers.PROMETHEUS_ROOT + handlers.URL_SEP + queryPart
-	QueryRangeURL = handlers.PROMETHEUS_ROOT + handlers.URL_SEP + queryRangePart
+	PrometheusRoot   = obsidian.NetworksRoot + obsidian.UrlSep + ":network_id" + obsidian.UrlSep + "prometheus"
+	PrometheusV1Root = handlers.ManageNetworkPath + obsidian.UrlSep + "prometheus"
+
+	QueryURL      = PrometheusRoot + obsidian.UrlSep + queryPart
+	QueryRangeURL = PrometheusRoot + obsidian.UrlSep + queryRangePart
+
+	QueryV1URL      = PrometheusV1Root + obsidian.UrlSep + queryPart
+	QueryRangeV1URL = PrometheusV1Root + obsidian.UrlSep + queryRangePart
+	SeriesV1URL     = PrometheusV1Root + obsidian.UrlSep + seriesPart
 
 	defaultStepWidth = "15s"
 )
@@ -38,7 +48,7 @@ func GetPrometheusQueryHandler(api v1.API) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		restrictedQuery, err := preparePrometheusQuery(c)
 		if err != nil {
-			return handlers.HttpError(err, 500)
+			return obsidian.HttpError(err, 500)
 		}
 		return prometheusQuery(c, restrictedQuery, api)
 	}
@@ -48,12 +58,12 @@ func prometheusQuery(c echo.Context, query string, apiClient v1.API) error {
 	defaultTime := time.Now()
 	queryTime, err := utils.ParseTime(c.QueryParam(utils.ParamTime), &defaultTime)
 	if err != nil {
-		return handlers.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamTime, err), http.StatusBadRequest)
+		return obsidian.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamTime, err), http.StatusBadRequest)
 	}
 
 	res, err := apiClient.Query(context.Background(), query, queryTime)
 	if err != nil {
-		return handlers.HttpError(err, http.StatusInternalServerError)
+		return obsidian.HttpError(err, http.StatusInternalServerError)
 	}
 	return c.JSON(http.StatusOK, wrapPrometheusResult(res))
 }
@@ -62,7 +72,7 @@ func GetPrometheusQueryRangeHandler(api v1.API) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		restrictedQuery, err := preparePrometheusQuery(c)
 		if err != nil {
-			return handlers.HttpError(err, 500)
+			return obsidian.HttpError(err, 500)
 		}
 		return prometheusQueryRange(c, restrictedQuery, api)
 	}
@@ -71,24 +81,24 @@ func GetPrometheusQueryRangeHandler(api v1.API) func(c echo.Context) error {
 func prometheusQueryRange(c echo.Context, query string, apiClient v1.API) error {
 	startTime, err := utils.ParseTime(c.QueryParam(utils.ParamRangeStart), nil)
 	if err != nil {
-		return handlers.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamRangeEnd, err), http.StatusBadRequest)
+		return obsidian.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamRangeEnd, err), http.StatusBadRequest)
 	}
 
 	defaultTime := time.Now()
 	endTime, err := utils.ParseTime(c.QueryParam(utils.ParamRangeEnd), &defaultTime)
 	if err != nil {
-		return handlers.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamRangeEnd, err), http.StatusBadRequest)
+		return obsidian.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamRangeEnd, err), http.StatusBadRequest)
 	}
 
 	step, err := utils.ParseDuration(c.QueryParam(utils.ParamStepWidth), defaultStepWidth)
 	if err != nil {
-		return handlers.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamRangeEnd, err), http.StatusBadRequest)
+		return obsidian.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamRangeEnd, err), http.StatusBadRequest)
 	}
 	timeRange := v1.Range{Start: startTime, End: endTime, Step: step}
 
 	res, err := apiClient.QueryRange(context.Background(), query, timeRange)
 	if err != nil {
-		return handlers.HttpError(err, http.StatusInternalServerError)
+		return obsidian.HttpError(err, http.StatusInternalServerError)
 	}
 	return c.JSON(http.StatusOK, wrapPrometheusResult(res))
 }
@@ -99,7 +109,7 @@ func wrapPrometheusResult(res model.Value) PromQLResultStruct {
 }
 
 func preparePrometheusQuery(c echo.Context) (string, error) {
-	networkID, nerr := handlers.GetNetworkId(c)
+	networkID, nerr := obsidian.GetNetworkId(c)
 	if nerr != nil {
 		return "", nerr
 	}
@@ -128,4 +138,35 @@ type PromQLResultStruct struct {
 type PromQLDataStruct struct {
 	ResultType string      `json:"resultType"`
 	Result     model.Value `json:"result"`
+}
+
+var (
+	minTime = time.Unix(math.MinInt64/1000+62135596801, 0).UTC()
+	maxTime = time.Unix(math.MaxInt64/1000-62135596801, 999999999).UTC()
+)
+
+func GetPrometheusSeriesHandler(api v1.API) func(c echo.Context) error {
+	return func(c echo.Context) error {
+		nID, nerr := obsidian.GetNetworkId(c)
+		if nerr != nil {
+			return obsidian.HttpError(nerr, http.StatusBadRequest)
+		}
+
+		startTime, err := utils.ParseTime(c.QueryParam(utils.ParamRangeStart), &minTime)
+		if err != nil {
+			return obsidian.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamRangeEnd, err), http.StatusBadRequest)
+		}
+
+		endTime, err := utils.ParseTime(c.QueryParam(utils.ParamRangeEnd), &maxTime)
+		if err != nil {
+			return obsidian.HttpError(fmt.Errorf("unable to parse %s parameter: %v", utils.ParamRangeEnd, err), http.StatusBadRequest)
+		}
+
+		match := fmt.Sprintf(`{networkID="%s"}`, nID)
+		res, err := api.Series(context.Background(), []string{match}, startTime, endTime)
+		if err != nil {
+			return obsidian.HttpError(err, http.StatusInternalServerError)
+		}
+		return c.JSON(http.StatusOK, res)
+	}
 }

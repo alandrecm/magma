@@ -83,7 +83,7 @@ func (m *NetworkRanConfigs) validateNetworkRANConfig() error {
 	}
 
 	earfcnDl := getEarfcnDl(m)
-	band, err := utils.GetBand(earfcnDl)
+	band, err := utils.GetBand(uint32(earfcnDl))
 	if err != nil {
 		return err
 	}
@@ -149,10 +149,10 @@ func validateFDDConfig(earfcnDl int32, band *utils.LTEBand, fddConfig *NetworkRa
 	earfcnUl := fddConfig.Earfcnul
 	// Provide default EARFCNUL if not set
 	if earfcnUl == 0 {
-		fddConfig.Earfcnul = uint32(earfcnDl - band.StartEarfcnDl + band.StartEarfcnUl)
+		fddConfig.Earfcnul = uint32(earfcnDl) - band.StartEarfcnDl + band.StartEarfcnUl
 		earfcnUl = fddConfig.Earfcnul
 	}
-	if !band.EarfcnULInRange(int32(earfcnUl)) {
+	if !band.EarfcnULInRange(earfcnUl) {
 		return fmt.Errorf("EARFCNUL=%d invalid for Band %d (%d, %d)",
 			earfcnUl,
 			band.ID,
@@ -199,6 +199,7 @@ func (config *NetworkEnodebConfigs) ValidateEnodebConfig() error {
 	case
 		"Baicells Nova-233 G2 OD FDD",
 		"Baicells Nova-243 OD TDD",
+		"Baicells Neutrino 224 ID FDD",
 		"Baicells ID TDD/FDD",
 		"NuRAN Cavium OC-LTE":
 		break

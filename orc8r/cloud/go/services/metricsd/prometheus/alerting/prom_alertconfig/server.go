@@ -14,6 +14,7 @@ import (
 	"net/http"
 
 	"magma/orc8r/cloud/go/services/metricsd/prometheus/alerting/alert"
+	"magma/orc8r/cloud/go/services/metricsd/prometheus/alerting/files"
 	"magma/orc8r/cloud/go/services/metricsd/prometheus/alerting/handlers"
 
 	"github.com/golang/glog"
@@ -21,32 +22,32 @@ import (
 )
 
 const (
-	defaultPort          = "9093"
-	defaultPrometheusURL = "localhost:9090"
-
-	rootPath  = "/:network_id"
-	alertPath = rootPath + "/alert"
+	defaultPort          = "9100"
+	defaultPrometheusURL = "prometheus:9090"
 )
 
 func main() {
 	port := flag.String("port", defaultPort, fmt.Sprintf("Port to listen for requests. Default is %s", defaultPort))
 	rulesDir := flag.String("rules-dir", ".", "Directory to write rules files. Default is '.'")
-	prometheusURL := flag.String("prometheusURL", "localhost:9090", fmt.Sprintf("URL of the prometheus instance that is reading these rules. Default is %s", defaultPrometheusURL))
+	prometheusURL := flag.String("prometheusURL", defaultPrometheusURL, fmt.Sprintf("URL of the prometheus instance that is reading these rules. Default is %s", defaultPrometheusURL))
 	flag.Parse()
 
 	e := echo.New()
 
-	alertClient, err := alert.NewClient(*rulesDir)
+	fileLocks, err := alert.NewFileLocker(alert.NewDirectoryClient(*rulesDir))
+	alertClient := alert.NewClient(fileLocks, *rulesDir, files.NewFSClient())
 	if err != nil {
 		glog.Errorf("error creating alert client: %v", err)
 		return
 	}
 	e.GET("/", statusHandler)
 
-	e.POST(alertPath, handlers.GetPostHandler(alertClient, *prometheusURL))
-	e.GET(alertPath, handlers.GetGetHandler(alertClient))
-	e.DELETE(alertPath, handlers.GetDeleteHandler(alertClient, *prometheusURL))
-	e.PUT(alertPath+"/:"+handlers.RuleNamePathParam, handlers.GetUpdateAlertHandler(alertClient, *prometheusURL))
+	e.POST(handlers.AlertPath, handlers.GetConfigureAlertHandler(alertClient, *prometheusURL))
+	e.GET(handlers.AlertPath, handlers.GetRetrieveAlertHandler(alertClient))
+	e.DELETE(handlers.AlertPath, handlers.GetDeleteAlertHandler(alertClient, *prometheusURL))
+	e.PUT(handlers.AlertUpdatePath, handlers.GetUpdateAlertHandler(alertClient, *prometheusURL))
+
+	e.PUT(handlers.AlertBulkPath, handlers.GetBulkAlertUpdateHandler(alertClient, *prometheusURL))
 
 	glog.Infof("Prometheus Config server listening on port: %s\n", *port)
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%s", *port)))

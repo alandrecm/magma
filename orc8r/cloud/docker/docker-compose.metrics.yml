@@ -7,6 +7,8 @@ services:
       dockerfile: $PWD/prometheus-cache/Dockerfile
     ports:
       - 9091:9091/tcp
+    command:
+      - '-limit=500000'
     restart: always
 
   prometheus:
@@ -36,20 +38,21 @@ services:
       context: $PWD/../../../orc8r/cloud
       dockerfile: $PWD/config-manager/Dockerfile
     environment:
-      - PROM_ALERTCONFIG_PORT=9093
+      - PROM_ALERTCONFIG_PORT=9100
       - RULES_DIR=/etc/configs/alert_rules
       - PROMETHEUS_URL=prometheus:9090
-      - ALERTMANAGER_CONFIG_PORT=9094
+      - ALERTMANAGER_CONFIG_PORT=9101
       - ALERTMANAGER_CONF_PATH=/etc/configs/alertmanager.yml
       - ALERTMANAGER_URL=alertmanager:9093
     restart: always
 
-  graphite:
+  grafana:
+    build:
+      context: $PWD/../../../orc8r/cloud
+      dockerfile: $PWD/grafana/Dockerfile
     environment:
-      - REDIS_TAGDB=1
+      - PROMETHEUS_HOST=prometheus
+      - PROMETHEUS_PORT=9090
     ports:
-      - 8001:80/tcp
-    volumes:
-      - $PWD/graphite/storage-schemas.conf:/opt/graphite/conf/storage-schemas.conf
-      - $PWD/graphite/carbon.conf:/opt/graphite/conf/carbon.conf
-    image: graphiteapp/graphite-statsd
+      - 3000:3000/tcp
+    restart: always

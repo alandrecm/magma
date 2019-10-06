@@ -12,23 +12,19 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"encoding/base64"
-	"fbc/cwf/radius/session"
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
-
-	"github.com/mitchellh/mapstructure"
 
 	"fbc/cwf/radius/modules"
+	"fbc/cwf/radius/modules/analytics/graphql"
+	"fbc/cwf/radius/session"
 	"fbc/lib/go/radius"
 	"fbc/lib/go/radius/rfc2865"
 	"fbc/lib/go/radius/rfc2866"
 	"fbc/lib/go/radius/rfc2869"
 
-	"fbc/lib/go/libgraphql"
-
+	"github.com/mitchellh/mapstructure"
 	"go.uber.org/zap"
 )
 
@@ -40,35 +36,41 @@ type Config struct {
 	AllowPII      bool   // If true, PII will not be tokenized before sending to GraphQL
 }
 
-var (
-	// a client to issue GraphQL calls
-	graphqlClient *libgraphql.Client
-	// true means all GraphQL operations will be eliminated & assumed successful.
-	cfg Config
+type (
+	// ModuleCtx ...
+	ModuleCtx struct {
+		// a client to issue GraphQL calls
+		graphqlClient *graphql.Client
+		cfg           Config
+		graphQLOps    map[string]*Queue // a queue of GraphQL operations, pending serialized execution
+	}
 )
 
 // Init module interface implementation
 //nolint:deadcode
-func Init(logger *zap.Logger, config modules.ModuleConfig) error {
+func Init(logger *zap.Logger, config modules.ModuleConfig) (modules.Context, error) {
+	var ctx ModuleCtx
+
 	// Parse config
-	err := mapstructure.Decode(config, &cfg)
+	err := mapstructure.Decode(config, &ctx.cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Warn in log about dangerous settings
-	if cfg.DryRunGraphQL {
+	if ctx.cfg.DryRunGraphQL {
 		logger.Warn("ANALYTICS IS SET TO DRY MODE, DATA WILL NOT BE SENT OUT VIA GRAPHQL")
 	}
 
-	if cfg.AllowPII {
+	if ctx.cfg.AllowPII {
 		logger.Warn("ANALYTICS IS SET TO ALLOW PII BE SENT OUT")
 	}
 
+	ctx.graphQLOps = make(map[string]*Queue)
 	// Create client
-	graphqlClient = libgraphql.NewClient(libgraphql.ClientConfig{
-		Token:    cfg.AccessToken,
-		Endpoint: cfg.GraphQLURL,
+	ctx.graphqlClient = graphql.NewClient(graphql.ClientConfig{
+		Token:    ctx.cfg.AccessToken,
+		Endpoint: ctx.cfg.GraphQLURL,
 		HTTPClient: &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -76,7 +78,7 @@ func Init(logger *zap.Logger, config modules.ModuleConfig) error {
 		},
 	})
 
-	return nil
+	return ctx, nil
 }
 
 // get the session state when exist. otherwise, create it
@@ -100,59 +102,11 @@ func getSessionState(logger *zap.Logger, c *modules.RequestContext) (*session.St
 	return sessionState, nil
 }
 
-// do the GraphQL call to create the RadiusSession
-func createRadiusSession(logger *zap.Logger, c *modules.RequestContext, session *RadiusSession, sessionState *session.State) {
-	logger.Debug("Creating a new RADIUS session", zap.Any("radius_session", session))
-	if cfg.DryRunGraphQL {
-		sessionState.RadiusSessionFBID = uint64(time.Now().UnixNano())
-		time.Sleep(time.Millisecond) // provide some delay for GraphQL calls
-		logger.Debug("GraphQL is in dry-run mode !!!", zap.Any("radius_session", session))
-	} else {
-		createOp := NewCreateSessionOp(session)
-		err := graphqlClient.Do(createOp)
-		if err != nil {
-			logger.Error("failed creating session", zap.Any("radius_session", &session),
-				zap.Error(err))
-			return
-		}
-		logger.Warn("session created", zap.Uint64("fbid", sessionState.RadiusSessionFBID))
-		sessionState.RadiusSessionFBID = createOp.Response().FBID
-	}
-
-	// Persist state
-	err := c.SessionStorage.Set(*sessionState)
-	if err != nil {
-		logger.Error("failed to update session", zap.Error(err), zap.Any("session_state", sessionState))
-	}
-}
-
-// do the GraphQL call to update the RadiusSession
-func updateRadiusSession(logger *zap.Logger, c *modules.RequestContext, session *RadiusSession, sessionState *session.State) {
-	if cfg.DryRunGraphQL {
-		time.Sleep(time.Millisecond) // provide some delay for GraphQL calls
-		logger.Debug("GraphQL is in dry-run mode !!!", zap.Any("radius_session", session))
-	} else {
-		updateOp := NewUpdateSessionOp(session)
-		err := graphqlClient.Do(updateOp)
-		if err != nil {
-			logger.Error("failed updating session", zap.Any("radius_session", &session),
-				zap.Error(err))
-			return
-		}
-	}
-
-	// Persist state
-	err := c.SessionStorage.Set(*sessionState)
-	if err != nil {
-		logger.Error("failed to update session", zap.Error(err), zap.Any("session_state", sessionState))
-	}
-}
-
 // Handle module interface implementation
 //nolint:deadcode
-func Handle(c *modules.RequestContext, r *radius.Request, next modules.Middleware) (*modules.Response, error) {
+func Handle(m modules.Context, c *modules.RequestContext, r *radius.Request, next modules.Middleware) (*modules.Response, error) {
+	mCtx := m.(ModuleCtx)
 	pkt := r.Packet
-	var asyncQL sync.WaitGroup
 
 	switch r.Code {
 	case radius.CodeAccessRequest:
@@ -185,18 +139,25 @@ func Handle(c *modules.RequestContext, r *radius.Request, next modules.Middlewar
 			NormalizedMacAddress: normalizedMacAddress,
 		}
 
-		if !cfg.AllowPII {
+		if !mCtx.cfg.AllowPII {
 			session.AcctSessionID = tokenize(session.AcctSessionID)
 			session.CallingStationID = tokenize(session.CallingStationID)
 			session.FramedIPAddress = tokenize(session.FramedIPAddress)
 			session.NormalizedMacAddress = tokenize(session.NormalizedMacAddress)
 		}
 
-		asyncQL.Add(1)
-		go func() {
-			createRadiusSession(c.Logger, c, &session, sessionState)
-			asyncQL.Done()
-		}()
+		// Persist state before we fire an async task - so the session has a single state object
+		err = c.SessionStorage.Set(*sessionState)
+		if err != nil {
+			c.Logger.Error("failed to update session", zap.Error(err), zap.Any("session_state", sessionState))
+		}
+
+		pushGraphQLTask(mCtx, c.Logger, &createSessionTask{
+			Logger:       c.Logger,
+			reqCtx:       c,
+			session:      &session,
+			sessionState: sessionState,
+		}, sessionState)
 
 	case radius.CodeAccountingRequest:
 		switch rfc2866.AcctStatusType_Get(pkt) {
@@ -238,16 +199,20 @@ func Handle(c *modules.RequestContext, r *radius.Request, next modules.Middlewar
 			}
 
 			// Tokenize fields which might contain PII
-			if !cfg.AllowPII {
+			if !mCtx.cfg.AllowPII {
 				session.AcctSessionID = tokenize(session.AcctSessionID)
 			}
 
 			// Send the request!
-			asyncQL.Add(1)
-			go func() {
-				updateRadiusSession(c.Logger, c, &session, sessionState)
-				asyncQL.Done()
-			}()
+			pushGraphQLTask(mCtx, c.Logger, &updateSessionTask{
+				Logger:       c.Logger,
+				reqCtx:       c,
+				session:      &session,
+				sessionState: sessionState,
+			}, sessionState)
+			if rfc2866.AcctStatusType_Get(pkt) == rfc2866.AcctStatusType_Value_Stop {
+				cleanSessionTasks(mCtx, c.Logger, sessionState)
+			}
 		case rfc2866.AcctStatusType_Value_AccountingOn:
 			fallthrough
 		case rfc2866.AcctStatusType_Value_AccountingOff:
@@ -262,8 +227,6 @@ func Handle(c *modules.RequestContext, r *radius.Request, next modules.Middlewar
 	}
 	// since we only provide analytics, dont fail packet processing even when we have errors, so client flow isn't hampered.
 	resp, err := next(c, r)
-	// wait for the GraphQL we fired before the module chain was called
-	asyncQL.Wait()
 	return resp, err
 }
 

@@ -48,6 +48,28 @@ func ListNetworkIDs() ([]string, error) {
 	return idsWrapper.NetworkIDs, nil
 }
 
+// ListNetworksOfType returns a list of all network IDs which match the given
+// type
+func ListNetworksOfType(networkType string) ([]string, error) {
+	client, err := getNBConfiguratorClient()
+	if err != nil {
+		return nil, err
+	}
+	networks, err := client.LoadNetworks(
+		context.Background(),
+		&protos.LoadNetworksRequest{
+			Criteria: &storage.NetworkLoadCriteria{},
+			Filter: &storage.NetworkLoadFilter{
+				TypeFilter: strPtrToWrapper(&networkType),
+			},
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return funk.Map(networks.Networks, func(n *storage.Network) string { return n.ID }).([]string), nil
+}
+
 func CreateNetwork(network Network) error {
 	_, err := CreateNetworks([]Network{network})
 	return err
@@ -146,7 +168,9 @@ func LoadNetworks(networks []string, loadMetadata bool, loadConfigs bool) ([]Net
 		return nil, nil, err
 	}
 	request := &protos.LoadNetworksRequest{
-		Networks: networks,
+		Filter: &storage.NetworkLoadFilter{
+			Ids: networks,
+		},
 		Criteria: &storage.NetworkLoadCriteria{
 			LoadMetadata: loadMetadata,
 			LoadConfigs:  loadConfigs,
@@ -168,6 +192,36 @@ func LoadNetworks(networks []string, loadMetadata bool, loadConfigs bool) ([]Net
 	return ret, result.NetworkIDsNotFound, nil
 }
 
+func LoadNetworksByType(typeVal string, loadMetadata bool, loadConfigs bool) ([]Network, error) {
+	client, err := getNBConfiguratorClient()
+	if err != nil {
+		return nil, err
+	}
+	request := &protos.LoadNetworksRequest{
+		Filter: &storage.NetworkLoadFilter{
+			TypeFilter: strPtrToWrapper(&typeVal),
+		},
+		Criteria: &storage.NetworkLoadCriteria{
+			LoadMetadata: loadMetadata,
+			LoadConfigs:  loadConfigs,
+		},
+	}
+	result, err := client.LoadNetworks(context.Background(), request)
+	if err != nil {
+		return nil, err
+	}
+
+	ret := make([]Network, len(result.Networks))
+	for i, n := range result.Networks {
+		retNet, err := ret[i].fromStorageProto(n)
+		if err != nil {
+			return nil, err
+		}
+		ret[i] = retNet
+	}
+	return ret, nil
+}
+
 func LoadNetwork(networkID string, loadMetadata bool, loadConfigs bool) (Network, error) {
 	networks, _, err := LoadNetworks([]string{networkID}, loadMetadata, loadConfigs)
 	if err != nil {
@@ -177,6 +231,21 @@ func LoadNetwork(networkID string, loadMetadata bool, loadConfigs bool) (Network
 		return Network{}, merrors.ErrNotFound
 	}
 	return networks[0], nil
+}
+
+// LoadNetworkConfig loads network config of type configType registered under the networkID
+func LoadNetworkConfig(networkID, configType string) (interface{}, error) {
+	network, err := LoadNetwork(networkID, false, true)
+	if err != nil {
+		return nil, err
+	}
+	if network.Configs == nil {
+		return nil, merrors.ErrNotFound
+	}
+	if _, exists := network.Configs[configType]; !exists {
+		return nil, merrors.ErrNotFound
+	}
+	return network.Configs[configType], nil
 }
 
 func UpdateNetworkConfig(networkID, configType string, config interface{}) error {
@@ -204,6 +273,43 @@ func GetNetworkConfigsByType(networkID string, configType string) (interface{}, 
 		return nil, fmt.Errorf("Network %s not found", networkID)
 	}
 	return networks[0].Configs[configType], nil
+}
+
+// WriteEntities executes a series of entity writes (creation or update) to be
+// executed in order within a single transaction.
+// This function is all-or-nothing - any failure or error encountered during
+// any operation will rollback the entire batch.
+func WriteEntities(networkID string, writes ...EntityWriteOperation) error {
+	client, err := getNBConfiguratorClient()
+	if err != nil {
+		return err
+	}
+
+	req := &protos.WriteEntitiesRequest{NetworkID: networkID}
+	for _, write := range writes {
+		switch op := write.(type) {
+		case NetworkEntity:
+			protoEnt, err := op.toStorageProto()
+			if err != nil {
+				return err
+			}
+			req.Writes = append(req.Writes, &protos.WriteEntityRequest{Request: &protos.WriteEntityRequest_Create{Create: protoEnt}})
+		case EntityUpdateCriteria:
+			protoEuc, err := op.toStorageProto()
+			if err != nil {
+				return err
+			}
+			req.Writes = append(req.Writes, &protos.WriteEntityRequest{Request: &protos.WriteEntityRequest_Update{Update: protoEuc}})
+		default:
+			return errors.Errorf("unrecognized entity write operation %T", op)
+		}
+	}
+
+	_, err = client.WriteEntities(context.Background(), req)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func CreateEntity(networkID string, entity NetworkEntity) (NetworkEntity, error) {
@@ -457,7 +563,7 @@ func LoadEntities(
 	physicalID *string,
 	ids []storage2.TypeAndKey,
 	criteria EntityLoadCriteria,
-) ([]NetworkEntity, []storage2.TypeAndKey, error) {
+) (NetworkEntities, []storage2.TypeAndKey, error) {
 	client, err := getNBConfiguratorClient()
 	if err != nil {
 		return nil, nil, err

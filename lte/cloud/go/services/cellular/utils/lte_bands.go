@@ -12,11 +12,11 @@ import "fmt"
 
 // LTEBand struct for converting EARFCN to Band
 type LTEBand struct {
-	ID            int32
+	ID            uint32
 	Mode          DuplexMode
-	CountEarfcn   int32
-	StartEarfcnDl int32
-	StartEarfcnUl int32
+	CountEarfcn   uint32
+	StartEarfcnDl uint32
+	StartEarfcnUl uint32
 }
 
 // DuplexMode of LTE Band
@@ -37,6 +37,7 @@ var bands = [...]LTEBand{
 	{ID: 4, Mode: FDDMode, StartEarfcnDl: 1950, StartEarfcnUl: 19950, CountEarfcn: 450},
 	{ID: 28, Mode: FDDMode, StartEarfcnDl: 9210, StartEarfcnUl: 27210, CountEarfcn: 450},
 	// TDDMode
+	{ID: 39, Mode: TDDMode, StartEarfcnDl: 38250, CountEarfcn: 400},
 	{ID: 40, Mode: TDDMode, StartEarfcnDl: 38650, CountEarfcn: 1000},
 	{ID: 41, Mode: TDDMode, StartEarfcnDl: 39650, CountEarfcn: 1940},
 	{ID: 42, Mode: TDDMode, StartEarfcnDl: 41590, CountEarfcn: 2000},
@@ -45,12 +46,12 @@ var bands = [...]LTEBand{
 }
 
 // EarfcnDLInRange checks that an EARFCN-DL belongs to a band
-func (band LTEBand) EarfcnDLInRange(earfcndl int32) bool {
+func (band LTEBand) EarfcnDLInRange(earfcndl uint32) bool {
 	return band.StartEarfcnDl <= earfcndl && earfcndl < band.StartEarfcnDl+band.CountEarfcn
 }
 
 // EarfcnULInRange checks that an EARFCN-UL belongs to a band
-func (band LTEBand) EarfcnULInRange(earfcnul int32) bool {
+func (band LTEBand) EarfcnULInRange(earfcnul uint32) bool {
 	if band.Mode == FDDMode {
 		return band.StartEarfcnUl <= earfcnul && earfcnul < band.StartEarfcnUl+band.CountEarfcn
 	}
@@ -58,7 +59,7 @@ func (band LTEBand) EarfcnULInRange(earfcnul int32) bool {
 }
 
 // GetBand for a EARFCN-UL
-func GetBand(earfcndl int32) (*LTEBand, error) {
+func GetBand(earfcndl uint32) (*LTEBand, error) {
 	for _, band := range bands {
 		if band.EarfcnDLInRange(earfcndl) {
 			return &band, nil

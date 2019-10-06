@@ -1,3 +1,11 @@
+/*
+Copyright (c) Facebook, Inc. and its affiliates.
+All rights reserved.
+
+This source code is licensed under the BSD-style license found in the
+LICENSE file in the root directory of this source tree.
+*/
+
 package test_utils
 
 import (
@@ -7,11 +15,10 @@ import (
 	"magma/orc8r/cloud/go/identity"
 	"magma/orc8r/cloud/go/obsidian/tests"
 	"magma/orc8r/cloud/go/orc8r"
+	"magma/orc8r/cloud/go/pluginimpl/models"
 	"magma/orc8r/cloud/go/protos"
-	"magma/orc8r/cloud/go/registry"
 	"magma/orc8r/cloud/go/serde"
 	"magma/orc8r/cloud/go/service/middleware/unary/test_utils"
-	checkind_models "magma/orc8r/cloud/go/services/checkind/obsidian/models"
 	"magma/orc8r/cloud/go/services/state"
 
 	"github.com/stretchr/testify/assert"
@@ -19,10 +26,9 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func ReportGatewayStatus(t *testing.T, ctx context.Context, req *checkind_models.GatewayStatus) {
-	conn, err := registry.GetConnection(state.ServiceName)
+func ReportGatewayStatus(t *testing.T, ctx context.Context, req *models.GatewayStatus) {
+	client, err := state.GetStateClient()
 	assert.NoError(t, err)
-	client := protos.NewStateServiceClient(conn)
 
 	serializedGWStatus, err := serde.Serialize(state.SerdeDomain, orc8r.GatewayStateType, req)
 	assert.NoError(t, err)

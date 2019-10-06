@@ -8,15 +8,16 @@
  * @format
  */
 
+import SymphonyTheme from './symphony';
 import {
   blue05,
   blue30,
   blue60,
-  blue80,
   blueGrayDark,
   fadedBlue,
   gray0,
   gray00,
+  gray1,
   gray50,
   primaryText,
   red,
@@ -26,14 +27,15 @@ import {
 import {createMuiTheme} from '@material-ui/core/styles';
 
 export default createMuiTheme({
+  symphony: SymphonyTheme,
   palette: {
     primary: {
-      light: blue30,
-      main: blue60,
-      dark: blue80,
+      light: SymphonyTheme.palette.B300,
+      main: SymphonyTheme.palette.B600,
+      dark: SymphonyTheme.palette.B900,
     },
     secondary: {
-      main: '#606770',
+      main: SymphonyTheme.palette.D900,
     },
     action: {
       hover: '#cfd8dc',
@@ -54,6 +56,9 @@ export default createMuiTheme({
       A200: '#8d949e',
       A700: '#444950',
     },
+    typography: {
+      ...SymphonyTheme.typography,
+    },
     red: red,
     redwood: redwood,
     dark: '#1d2129',
@@ -63,6 +68,7 @@ export default createMuiTheme({
     blue30: blue30,
     blue60: blue60,
     gray00: gray00,
+    gray1: gray1,
     gray50: gray50,
     primaryText: primaryText,
   },
@@ -77,8 +83,20 @@ export default createMuiTheme({
       root: {
         borderRadius: 4,
         cursor: 'pointer',
-        fontSize: 14,
-        padding: '6px 30px',
+        fontSize: '14px',
+        textTransform: 'capitalize',
+        padding: '8px 12px',
+        fontWeight: 500,
+        lineHeight: '16px',
+      },
+      contained: {
+        boxShadow: 'none',
+      },
+    },
+    MuiFormControl: {
+      marginDense: {
+        marginTop: '0px',
+        marginBottom: '0px',
       },
     },
     MuiToggleButtonGroup: {
@@ -97,6 +115,22 @@ export default createMuiTheme({
           color: white,
           backgroundColor: blue60,
         },
+      },
+    },
+    MuiListItemText: {
+      root: {
+        marginBottom: '0px',
+        marginTop: '0px',
+      },
+    },
+    MuiSelect: {
+      selectMenu: {
+        height: '24px',
+      },
+    },
+    MuiTableRow: {
+      root: {
+        backgroundColor: 'white',
       },
     },
     MuiIconButton: {
@@ -131,8 +165,18 @@ export default createMuiTheme({
       input: {
         fontSize: '14px',
         lineHeight: '14px',
-        paddingBottom: '15px',
-        paddingTop: '15px',
+        paddingBottom: '12px',
+        paddingTop: '12px',
+        height: '24px',
+        '&::-webkit-input-placeholder': {
+          opacity: 1,
+        },
+        '&::-moz-placeholder': {
+          opacity: 1,
+        },
+        '&::-ms-input-placeholder': {
+          opacity: 1,
+        },
       },
       inputMarginDense: {
         paddingTop: '9px',
@@ -141,7 +185,7 @@ export default createMuiTheme({
         lineHeight: '14px',
         height: '14px',
         '&::placeholder': {
-          color: 'rgba(0, 0, 0, 0.6)',
+          color: '#8895ad',
         },
         '&::-webkit-input-placeholder': {
           opacity: 1,

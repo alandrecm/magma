@@ -12,18 +12,15 @@ LICENSE file in the root directory of this source tree.
 package servicers
 
 import (
-	"errors"
-	"os"
 	"strings"
+	"time"
 
-	"magma/orc8r/cloud/go/orc8r"
 	"magma/orc8r/cloud/go/protos"
 	"magma/orc8r/cloud/go/services/configurator"
-	"magma/orc8r/cloud/go/services/magmad"
 	"magma/orc8r/cloud/go/services/metricsd/exporters"
 
 	"github.com/golang/glog"
-	prometheus_proto "github.com/prometheus/client_model/go"
+	prometheusProto "github.com/prometheus/client_model/go"
 	"golang.org/x/net/context"
 )
 
@@ -35,20 +32,28 @@ func NewMetricsControllerServer() *MetricsControllerServer {
 	return &MetricsControllerServer{}
 }
 
+func (srv *MetricsControllerServer) Push(ctx context.Context, in *protos.PushedMetricsContainer) (*protos.Void, error) {
+	if in.Metrics == nil || len(in.Metrics) == 0 {
+		return new(protos.Void), nil
+	}
+
+	for _, e := range srv.exporters {
+		metricsToSubmit := pushedMetricsToMetricsAndContext(in)
+		err := e.Submit(metricsToSubmit)
+		if err != nil {
+			glog.Error(err)
+		}
+	}
+	return new(protos.Void), nil
+}
+
 func (srv *MetricsControllerServer) Collect(ctx context.Context, in *protos.MetricsContainer) (*protos.Void, error) {
 	if in.Family == nil || len(in.Family) == 0 {
 		return new(protos.Void), nil
 	}
 
 	hardwareID := in.GetGatewayId()
-	var networkID, gatewayID string
-	var err error
-	useConfigurator := os.Getenv(orc8r.UseConfiguratorEnv)
-	if useConfigurator == "1" {
-		networkID, gatewayID, err = configurator.GetNetworkAndEntityIDForPhysicalID(hardwareID)
-	} else {
-		networkID, gatewayID, err = srv.getNetworkAndGatewayID(hardwareID)
-	}
+	networkID, gatewayID, err := configurator.GetNetworkAndEntityIDForPhysicalID(hardwareID)
 	if err != nil {
 		return new(protos.Void), err
 	}
@@ -67,7 +72,7 @@ func (srv *MetricsControllerServer) Collect(ctx context.Context, in *protos.Metr
 // Pulls metrics off the given input channel and sends them to all exporters
 // after some preprocessing. Should be run in a goroutine as this blocks
 // forever.
-func (srv *MetricsControllerServer) ConsumeCloudMetrics(inputChan chan *prometheus_proto.MetricFamily, hostName string) error {
+func (srv *MetricsControllerServer) ConsumeCloudMetrics(inputChan chan *prometheusProto.MetricFamily, hostName string) error {
 	for family := range inputChan {
 		for _, e := range srv.exporters {
 			decodedName := protos.GetDecodedName(family)
@@ -102,18 +107,6 @@ func (srv *MetricsControllerServer) RegisterExporter(e exporters.Exporter) []exp
 	return srv.exporters
 }
 
-func (srv *MetricsControllerServer) getNetworkAndGatewayID(hardwareID string) (string, string, error) {
-	if len(hardwareID) == 0 {
-		return "", "", errors.New("Empty Hardware ID")
-	}
-	networkID, err := magmad.FindGatewayNetworkId(hardwareID)
-	if err != nil {
-		return "", "", err
-	}
-	gatewayID, err := magmad.FindGatewayId(networkID, hardwareID)
-	return networkID, gatewayID, err
-}
-
 func metricsContainerToMetricAndContexts(
 	in *protos.MetricsContainer,
 	networkID string, hardwareID string, gatewayID string,
@@ -130,6 +123,41 @@ func metricsContainerToMetricAndContexts(
 		}
 		for _, metric := range fam.Metric {
 			metric.Label = protos.GetDecodedLabel(metric)
+		}
+		ret = append(ret, exporters.MetricAndContext{Family: fam, Context: ctx})
+	}
+	return ret
+}
+
+func pushedMetricsToMetricsAndContext(in *protos.PushedMetricsContainer) []exporters.MetricAndContext {
+	ret := make([]exporters.MetricAndContext, 0, len(in.Metrics))
+	for _, metric := range in.Metrics {
+		ctx := exporters.MetricsContext{
+			MetricName:  metric.MetricName,
+			DecodedName: metric.MetricName,
+			NetworkID:   in.NetworkId,
+		}
+		gaugeType := prometheusProto.MetricType_GAUGE
+
+		prometheusLabels := make([]*prometheusProto.LabelPair, 0, len(metric.Labels))
+		for _, label := range metric.Labels {
+			prometheusLabels = append(prometheusLabels, &prometheusProto.LabelPair{Name: &label.Name, Value: &label.Value})
+		}
+		ts := metric.TimestampMS
+		if ts == 0 {
+			ts = time.Now().Unix() * 1000
+		}
+		fam := &prometheusProto.MetricFamily{
+			Name: &metric.MetricName,
+			Type: &gaugeType,
+			Metric: []*prometheusProto.Metric{{
+				Label: prometheusLabels,
+				Gauge: &prometheusProto.Gauge{
+					Value: &metric.Value,
+				},
+				TimestampMs: &ts,
+			},
+			},
 		}
 		ret = append(ret, exporters.MetricAndContext{Family: fam, Context: ctx})
 	}

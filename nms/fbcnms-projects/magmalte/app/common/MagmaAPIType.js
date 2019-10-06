@@ -16,6 +16,7 @@ export type CheckindGateway = {
     enodeb_connected: ?boolean,
     rf_tx_on: ?boolean,
   },
+  name: string,
   status: ?{
     checkin_time: number,
     hardware_id: string,
@@ -37,10 +38,7 @@ export type CheckindGateway = {
     kernel_version: string,
   },
   record: {
-    hw_id: {
-      id: string,
-    },
-    name: string,
+    hardware_id: string,
     key: {
       key_type: string,
       key: string,
@@ -87,34 +85,7 @@ export type MagmadConfig = {
 };
 
 export type Record = {
-  hw_id: {id: string},
-  name: string,
-};
-
-export type CellularNetworkProfile = {
-  max_dl_bit_rate: number,
-  max_ul_bit_rate: number,
-};
-
-export type CellularNetworkConfig = {
-  epc: {
-    lte_auth_amf: string,
-    lte_auth_op: string,
-    mcc: string,
-    mnc: string,
-    sub_profiles: {
-      [string]: CellularNetworkProfile,
-    },
-    tac: number,
-  },
-  ran: {
-    bandwidth_mhz: number,
-    earfcndl: number,
-    special_subframe_pattern: number,
-    subframe_assignment: number,
-    ul_dl_ratio: number,
-  },
-  default_rule_id?: string,
+  hardware_id: string,
 };
 
 export type NetworkUpgradeImage = {
@@ -122,14 +93,11 @@ export type NetworkUpgradeImage = {
   order: number,
 };
 
-export type NetworkUpgradeTier = {
-  id: string,
-  name: string,
-  version: string,
-  images: Array<NetworkUpgradeImage>,
-};
-
 export type UpgradeReleaseChannel = {
   name: string,
   supported_versions: Array<string>,
+};
+
+export type DevmandConfig = {
+  managed_devices: string[],
 };
